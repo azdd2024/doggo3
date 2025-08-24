@@ -1,0 +1,32 @@
+[build]
+builder = "nixpacks"
+buildCommand = "npm install && npm run build"
+
+[deploy]
+startCommand = "npm run start"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+[environments.production]
+variables = { NODE_ENV = "production" }
+
+[[services]]
+name = "doggo-cms"
+source = "apps/cms"
+port = 3000
+
+[[services]]
+name = "doggo-web"
+source = "apps/web"
+port = 3001
+
+[[services]]
+name = "postgres"
+image = "postgres:16"
+variables = { POSTGRES_PASSWORD = "${{POSTGRES_PASSWORD}}" }
+
+[[services]]
+name = "redis"
+image = "redis:7.2-alpine"

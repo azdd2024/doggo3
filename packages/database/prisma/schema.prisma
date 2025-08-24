@@ -1,0 +1,835 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions", "fullTextSearch"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = "postgresql://postgres.xfgeutcozevvlerfxxyu:6Im1TPbROBqmpcb8@aws-1-eu-west-3.pooler.supabase.com:5432/postgres"
+  extensions = [postgis]
+}
+
+// ===========================================
+// ENUMS
+// ===========================================
+
+enum UserRole {
+  ADMIN
+  USER
+  VETERINARIAN
+  SHELTER
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum BookingType {
+  GENERAL
+  URGENT
+  SPECIALIST
+  TELEMEDICINE
+}
+
+enum EmergencyType {
+  LOST_DOG
+  FOUND_DOG
+  INJURED_DOG
+  ABANDONED_DOG
+}
+
+enum DocumentType {
+  MICROCHIP
+  PEDIGREE
+  PASSPORT
+  VACCINATION
+  MEDICAL_RECORD
+  PRESCRIPTION
+  INSURANCE
+}
+
+enum DogSize {
+  TINY
+  SMALL
+  MEDIUM
+  LARGE
+  GIANT
+}
+
+enum ActivityLevel {
+  LOW
+  MODERATE
+  HIGH
+  VERY_HIGH
+}
+
+enum MatchStatus {
+  PENDING
+  MATCHED
+  REJECTED
+  CHATTING
+  MEETING_PLANNED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+  FAILED
+}
+
+enum AdoptionStatus {
+  AVAILABLE
+  PENDING
+  ADOPTED
+  HOLD
+}
+
+enum NotificationType {
+  BOOKING_CONFIRMED
+  BOOKING_REMINDER
+  BOOKING_CANCELLED
+  NEW_MESSAGE
+  NEW_MATCH
+  EMERGENCY_ALERT
+  DOCUMENT_EXPIRING
+  SYSTEM_UPDATE
+}
+
+// ===========================================
+// CORE MODELS
+// ===========================================
+
+model User {
+  id         String   @id @default(uuid())
+  email      String   @unique
+  firstName  String
+  lastName   String
+  phone      String?
+  avatar     String?
+  role       UserRole @default(USER)
+  isVerified Boolean  @default(false)
+  isActive   Boolean  @default(true)
+  
+  // JSON fields for flexibility
+  address     Json? // { street, city, state, zipCode, country, coordinates }
+  preferences Json? // { language, notifications, privacy }
+  
+  // Relationships
+  dogs                  Dog[]
+  veterinarian          Veterinarian?
+  shelter               Shelter?
+  bookings              Booking[]
+  emergencies           Emergency[]
+  sentMessages          Message[]
+  chatParticipants      ChatParticipant[]
+  user1Matches          Match[]               @relation("User1Matches")
+  user2Matches          Match[]               @relation("User2Matches")
+  notifications         Notification[]
+  adoptionApplications  AdoptionApplication[]
+  donations             Donation[]
+  eventParticipations   EventParticipation[]
+  auditLogs             AuditLog[]
+  documents             Document[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("users")
+  @@index([email])
+  @@index([role])
+  @@index([isActive])
+}
+
+model Dog {
+  id             String        @id @default(uuid())
+  ownerId        String?
+  chatId         String?
+  name           String
+  breed          String
+  birthDate      DateTime
+  gender         String // 'maschio' | 'femmina'
+  size           DogSize
+  weight         Float
+  color          String
+  microchipNumber String?      @unique
+  isNeutered     Boolean       @default(false)
+  activityLevel  ActivityLevel
+  temperament    String[] // Array of temperament traits
+  medicalNotes   String?
+  dietaryNeeds   String?
+  photos         String[] // Array of photo URLs
+  isActive       Boolean       @default(true)
+  
+  // Relationships
+  owner        User?         @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  chat         Chat?         @relation(fields: [chatId], references: [id], onDelete: SetNull)
+  bookings     Booking[]
+  documents    Document[]
+  matchesAsDog1 Match[] @relation("Dog1")
+  matchesAsDog2 Match[] @relation("Dog2")
+  adoptableDog AdoptableDog?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("dogs")
+  @@index([ownerId])
+  @@index([breed])
+  @@index([size])
+  @@index([isActive])
+  @@index([microchipNumber])
+  @@index([chatId])
+}
+
+model Veterinarian {
+  id                   String    @id @default(uuid())
+  userId               String    @unique
+  licenseNumber        String    @unique
+  specializations      String[] // Array of specializations
+  clinicName           String
+  clinicAddress        Json // { street, city, state, zipCode, country, coordinates }
+  workingHours         Json // Array of working hours
+  consultationFee      Float
+  emergencyFee         Float
+  telemedicineFee      Float
+  isVerified           Boolean   @default(false)
+  rating               Float     @default(0)
+  totalReviews         Int       @default(0)
+  isAcceptingPatients  Boolean   @default(true)
+  
+  // Relationships
+  user                User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookings            Booking[]
+  prescriptions       Prescription[]
+  videoCallSessions   VideoCallSession[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("veterinarians")
+  @@index([licenseNumber])
+  @@index([isVerified])
+  @@index([isAcceptingPatients])
+  @@index([rating])
+}
+
+model Shelter {
+  id                String  @id @default(uuid())
+  userId            String  @unique
+  name              String
+  registrationNumber String @unique
+  type              String // 'public' | 'private' | 'association'
+  address           Json // Address with coordinates
+  contactInfo       Json // Contact information
+  capacity          Int
+  currentOccupancy  Int     @default(0)
+  specializations   String[]
+  services          String[]
+  isVerified        Boolean @default(false)
+  rating            Float   @default(0)
+  totalReviews      Int     @default(0)
+  adoptionFee       Json // { min, max }
+  requirements      Json // Adoption requirements
+  workingHours      Json // Operating hours
+  photos            String[]
+  description       String
+  mission           String?
+  achievements      String[]
+  isActive          Boolean @default(true)
+  
+  // Relationships
+  user                    User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  adoptableDogs           AdoptableDog[]
+  adoptionApplications    AdoptionApplication[]
+  donations               Donation[]
+  events                  Event[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("shelters")
+  @@index([registrationNumber])
+  @@index([type])
+  @@index([isVerified])
+  @@index([isActive])
+}
+
+// ===========================================
+// BOOKING SYSTEM
+// ===========================================
+
+model Booking {
+  id                String        @id @default(uuid())
+  userId            String
+  dogId             String
+  veterinarianId    String
+  type              BookingType
+  status            BookingStatus @default(PENDING)
+  scheduledAt       DateTime
+  duration          Int           @default(30) // minutes
+  symptoms          String?
+  urgencyScore      Int?
+  triageNotes       String?
+  consultationNotes String?
+  prescription      String?
+  followUpRequired  Boolean       @default(false)
+  followUpDate      DateTime?
+  totalCost         Float
+  paymentStatus     PaymentStatus @default(PENDING)
+  paymentIntentId   String?
+  cancelledReason   String?
+  
+  // Relationships
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dog               Dog              @relation(fields: [dogId], references: [id], onDelete: Cascade)
+  veterinarian      Veterinarian     @relation(fields: [veterinarianId], references: [id], onDelete: Cascade)
+  videoCallSession  VideoCallSession?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("bookings")
+  @@index([userId])
+  @@index([dogId])
+  @@index([veterinarianId])
+  @@index([status])
+  @@index([scheduledAt])
+  @@index([type])
+}
+
+model VideoCallSession {
+  id             String    @id @default(uuid())
+  bookingId      String    @unique
+  veterinarianId String
+  dailyRoomUrl   String
+  dailyRoomName  String    @unique
+  participants   Json // Array of participants with timestamps
+  recordingUrl   String?
+  startedAt      DateTime?
+  endedAt        DateTime?
+  status         String    @default("scheduled") // 'scheduled' | 'active' | 'ended' | 'cancelled'
+  
+  // Relationships
+  booking      Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  veterinarian Veterinarian @relation(fields: [veterinarianId], references: [id])
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("video_call_sessions")
+  @@index([dailyRoomName])
+  @@index([status])
+  @@index([veterinarianId])
+}
+
+// ===========================================
+// DOCUMENT MANAGEMENT
+// ===========================================
+
+model Document {
+  id             String       @id @default(uuid())
+  ownerId        String
+  dogId          String?
+  chatId         String?
+  type           DocumentType
+  title          String
+  description    String?
+  fileUrl        String
+  fileName       String
+  fileSize       Int
+  mimeType       String
+  issuedDate     DateTime?
+  expirationDate DateTime?
+  issuedBy       String?
+  metadata       Json?
+  isVerified     Boolean      @default(false)
+  
+  // Relationships
+  owner User  @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  dog   Dog?  @relation(fields: [dogId], references: [id], onDelete: Cascade)
+  chat  Chat? @relation(fields: [chatId], references: [id], onDelete: SetNull)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("documents")
+  @@index([ownerId])
+  @@index([dogId])
+  @@index([chatId])
+  @@index([type])
+  @@index([isVerified])
+  @@index([expirationDate])
+}
+
+model Prescription {
+  id                String    @id @default(uuid())
+  veterinarianId    String
+  patientId         String // dogId
+  ownerId           String
+  drugName          String
+  activeIngredient  String
+  dosage            String
+  frequency         String
+  duration          String
+  quantity          Int
+  instructions      String
+  warnings          String?
+  issueDate         DateTime  @default(now())
+  validUntil        DateTime
+  qrCode            String    @unique
+  digitalSignature  String
+  isDispensed       Boolean   @default(false)
+  dispensedAt       DateTime?
+  pharmacyId        String?
+  
+  // Relationships
+  veterinarian Veterinarian @relation(fields: [veterinarianId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("prescriptions")
+  @@index([veterinarianId])
+  @@index([patientId])
+  @@index([ownerId])
+  @@index([qrCode])
+  @@index([isDispensed])
+  @@index([validUntil])
+}
+
+// ===========================================
+// EMERGENCY SYSTEM
+// ===========================================
+
+model Emergency {
+  id          String        @id @default(uuid())
+  reporterId  String
+  type        EmergencyType
+  title       String
+  description String
+  location    Json // { address, coordinates }
+  dogInfo     Json // { name, breed, color, size, gender, age, microchipNumber }
+  photos      String[]
+  contactInfo Json // { name, phone, preferredContactMethod }
+  isResolved  Boolean       @default(false)
+  resolvedAt  DateTime?
+  resolvedBy  String?
+  priority    String        @default("medium") // 'low' | 'medium' | 'high' | 'critical'
+  
+  // Relationships
+  reporter User @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("emergencies")
+  @@index([reporterId])
+  @@index([type])
+  @@index([isResolved])
+  @@index([priority])
+  @@index([createdAt])
+}
+
+// ===========================================
+// MATCHING SYSTEM (TINDOG)
+// ===========================================
+
+model Match {
+  id                String      @id @default(uuid())
+  dog1Id            String
+  dog2Id            String
+  user1Id           String
+  user2Id           String
+  status            MatchStatus @default(PENDING)
+  matchScore        Int // 0-100
+  user1Action       String      @default("pending") // 'pending' | 'liked' | 'passed'
+  user2Action       String      @default("pending") // 'pending' | 'liked' | 'passed'
+  chatId            String?     @unique
+  matchedAt         DateTime?
+  meetingPlannedAt  DateTime?
+  meetingLocation   String?
+  
+  // Relationships
+  dog1  Dog  @relation("Dog1", fields: [dog1Id], references: [id], onDelete: Cascade)
+  dog2  Dog  @relation("Dog2", fields: [dog2Id], references: [id], onDelete: Cascade)
+  user1 User @relation("User1Matches", fields: [user1Id], references: [id], onDelete: Cascade)
+  user2 User @relation("User2Matches", fields: [user2Id], references: [id], onDelete: Cascade)
+  chat  Chat? @relation(fields: [chatId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([dog1Id, dog2Id])
+  @@map("matches")
+  @@index([dog1Id])
+  @@index([dog2Id])
+  @@index([user1Id])
+  @@index([user2Id])
+  @@index([status])
+  @@index([matchedAt])
+}
+
+// ===========================================
+// CHAT SYSTEM
+// ===========================================
+
+model Chat {
+  id            String @id @default(uuid())
+  type          String @default("direct") // 'direct' | 'group' | 'support'
+  title         String?
+  lastMessageAt DateTime?
+  isActive      Boolean @default(true)
+  
+  // Relationships
+  participants ChatParticipant[]
+  messages     Message[]
+  match        Match?
+  documents    Document[]
+  dogs         Dog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("chats")
+  @@index([type])
+  @@index([isActive])
+  @@index([lastMessageAt])
+}
+
+model ChatParticipant {
+  id       String    @id @default(uuid())
+  chatId   String
+  userId   String
+  joinedAt DateTime  @default(now())
+  leftAt   DateTime?
+  role     String    @default("member") // 'admin' | 'member'
+  
+  // Relationships
+  chat Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([chatId, userId])
+  @@map("chat_participants")
+  @@index([chatId])
+  @@index([userId])
+}
+
+model Message {
+  id        String    @id @default(uuid())
+  chatId    String
+  senderId  String
+  content   String
+  type      String    @default("text") // 'text' | 'image' | 'file' | 'location' | 'system'
+  metadata  Json?
+  isEdited  Boolean   @default(false)
+  editedAt  DateTime?
+  readBy    Json      @default("[]") // Array of { userId, readAt }
+  
+  // Relationships
+  chat   Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender User @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("messages")
+  @@index([chatId])
+  @@index([senderId])
+  @@index([createdAt])
+}
+
+// ===========================================
+// NOTIFICATION SYSTEM
+// ===========================================
+
+model Notification {
+  id      String           @id @default(uuid())
+  userId  String
+  type    NotificationType
+  title   String
+  message String
+  data    Json?
+  isRead  Boolean          @default(false)
+  readAt  DateTime?
+  
+  // Relationships
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  
+  @@map("notifications")
+  @@index([userId])
+  @@index([type])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+// ===========================================
+// ADOPTION SYSTEM
+// ===========================================
+
+model AdoptableDog {
+  id             String          @id @default(uuid())
+  dogId          String          @unique
+  shelterId      String
+  story          String?
+  specialNeeds   String[]
+  goodWith       Json // { children, cats, dogs }
+  adoptionFee    Float
+  adoptionStatus AdoptionStatus  @default(AVAILABLE)
+  intakeDate     DateTime        @default(now())
+  adoptionDate   DateTime?
+  fosterable     Boolean         @default(false)
+  urgent         Boolean         @default(false)
+  featured       Boolean         @default(false)
+  
+  // Relationships
+  dog                     Dog                     @relation(fields: [dogId], references: [id], onDelete: Cascade)
+  shelter                 Shelter                 @relation(fields: [shelterId], references: [id], onDelete: Cascade)
+  adoptionApplications    AdoptionApplication[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("adoptable_dogs")
+  @@index([shelterId])
+  @@index([adoptionStatus])
+  @@index([featured])
+  @@index([urgent])
+  @@index([fosterable])
+}
+
+model AdoptionApplication {
+  id                String    @id @default(uuid())
+  dogId             String
+  applicantId       String
+  shelterId         String
+  status            String    @default("pending") // 'pending' | 'approved' | 'rejected' | 'interview' | 'home_visit' | 'completed'
+  application       Json // Complete application form data
+  notes             String?
+  interviewDate     DateTime?
+  homeVisitDate     DateTime?
+  adoptionDate      DateTime?
+  rejectionReason   String?
+  
+  // Relationships
+  dog       AdoptableDog @relation(fields: [dogId], references: [id], onDelete: Cascade)
+  applicant User         @relation(fields: [applicantId], references: [id], onDelete: Cascade)
+  shelter   Shelter      @relation(fields: [shelterId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("adoption_applications")
+  @@index([dogId])
+  @@index([applicantId])
+  @@index([shelterId])
+  @@index([status])
+}
+
+// ===========================================
+// DONATION SYSTEM
+// ===========================================
+
+model Donation {
+  id              String        @id @default(uuid())
+  donorId         String?
+  shelterId       String
+  amount          Float
+  currency        String        @default("EUR")
+  type            String        @default("one_time") // 'one_time' | 'monthly' | 'yearly'
+  purpose         String        @default("general") // 'general' | 'medical' | 'food' | 'shelter' | 'specific_dog'
+  specificDogId   String?
+  isAnonymous     Boolean       @default(false)
+  paymentMethod   String
+  paymentIntentId String        @unique
+  status          PaymentStatus @default(PENDING)
+  message         String?
+  
+  // Relationships
+  donor   User?   @relation(fields: [donorId], references: [id], onDelete: SetNull)
+  shelter Shelter @relation(fields: [shelterId], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("donations")
+  @@index([donorId])
+  @@index([shelterId])
+  @@index([status])
+  @@index([type])
+  @@index([paymentIntentId])
+}
+
+// ===========================================
+// EVENT SYSTEM
+// ===========================================
+
+model Event {
+  id                    String    @id @default(uuid())
+  organizerId           String
+  title                 String
+  description           String
+  type                  String // 'adoption' | 'fundraising' | 'training' | 'awareness' | 'volunteer'
+  startDate             DateTime
+  endDate               DateTime
+  location              Json // Address with coordinates
+  maxParticipants       Int?
+  currentParticipants   Int       @default(0)
+  requiresRegistration  Boolean   @default(true)
+  registrationDeadline  DateTime?
+  fee                   Float?
+  photos                String[]
+  tags                  String[]
+  isPublic              Boolean   @default(true)
+  isActive              Boolean   @default(true)
+  
+  // Relationships
+  organizer     Shelter              @relation(fields: [organizerId], references: [id], onDelete: Cascade)
+  participants  EventParticipation[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("events")
+  @@index([organizerId])
+  @@index([type])
+  @@index([startDate])
+  @@index([isPublic])
+  @@index([isActive])
+}
+
+model EventParticipation {
+  id           String    @id @default(uuid())
+  eventId      String
+  userId       String
+  registeredAt DateTime  @default(now())
+  status       String    @default("registered") // 'registered' | 'attended' | 'cancelled'
+  
+  // Relationships
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([eventId, userId])
+  @@map("event_participations")
+  @@index([eventId])
+  @@index([userId])
+  @@index([status])
+}
+
+// ===========================================
+// AUDIT & ANALYTICS
+// ===========================================
+
+model AuditLog {
+  id         String    @id @default(uuid())
+  userId     String?
+  action     String
+  resource   String
+  resourceId String
+  changes    Json?
+  metadata   Json?
+  ipAddress  String?
+  userAgent  String?
+  
+  // Relationships
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  
+  createdAt DateTime @default(now())
+  
+  @@map("audit_logs")
+  @@index([userId])
+  @@index([action])
+  @@index([resource])
+  @@index([createdAt])
+}
+
+model Analytics {
+  id        String   @id @default(uuid())
+  type      String // 'page_view' | 'booking' | 'match' | 'adoption' | 'donation'
+  userId    String?
+  entityId  String?
+  data      Json
+  timestamp DateTime @default(now())
+  
+  @@map("analytics")
+  @@index([type])
+  @@index([userId])
+  @@index([timestamp])
+}
+
+// ===========================================
+// SYSTEM CONFIGURATION
+// ===========================================
+
+model SystemConfig {
+  id          String @id @default(uuid())
+  key         String @unique
+  value       Json
+  description String?
+  isActive    Boolean @default(true)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("system_config")
+  @@index([key])
+  @@index([isActive])
+}
+
+model EmailTemplate {
+  id           String @id @default(uuid())
+  name         String @unique
+  subject      String
+  htmlContent  String
+  textContent  String
+  variables    String[]
+  category     String // 'transactional' | 'marketing' | 'notification'
+  isActive     Boolean @default(true)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("email_templates")
+  @@index([name])
+  @@index([category])
+  @@index([isActive])
+}
+
+model SmsTemplate {
+  id        String @id @default(uuid())
+  name      String @unique
+  content   String
+  variables String[]
+  isActive  Boolean @default(true)
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@map("sms_templates")
+  @@index([name])
+  @@index([isActive])
+}
+
+// ===========================================
+// FULL-TEXT SEARCH VIEWS
+// ===========================================
+
+// Note: These will be created via migrations as PostgreSQL views
+// view UserSearch {
+//   @@map("user_search")
+// }
+
+// view DogSearch {
+//   @@map("dog_search")  
+// }
+
+// view VeterinarianSearch {
+//   @@map("veterinarian_search")
+// }
